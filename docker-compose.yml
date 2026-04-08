@@ -1,0 +1,8 @@
+services:
+  dashboard:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - LINEAR_API_KEY=${LINEAR_API_KEY}
+    restart: unless-stopped

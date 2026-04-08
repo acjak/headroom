@@ -1,0 +1,10 @@
+node_modules/
+frontend/dist/
+.env
+.enc
+*.log
+.DS_Store
+*.swp
+*.swo
+*~
+.claude/settings.local.json
