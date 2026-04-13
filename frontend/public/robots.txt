@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Allow: /demo
+Allow: /privacy
+Allow: /terms
+Disallow: /api/
+Disallow: /auth/
+
+Sitemap: https://capacycle.com/sitemap.xml
