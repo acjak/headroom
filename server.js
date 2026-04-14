@@ -19,8 +19,17 @@ export function createApp(options = {}) {
     getApiKeyForRequest = null,
     onLinearAuthError = null,
     beforeRoutes = null,
+    afterRoutes = null,
     dataDir = path.join(__dirname, "data"),
     serveFrontend = true,
+    // Cloud mode skips built-in board/availability/actual-hours routes and socket handlers
+    // (it mounts tenant-aware versions itself)
+    skipBoardRoutes = false,
+    skipSocketHandlers = false,
+    // Linear webhook HMAC secret (optional; if set, webhooks without matching signature are rejected)
+    linearWebhookSecret = process.env.LINEAR_WEBHOOK_SECRET || null,
+    // Called when a verified Linear webhook arrives; returns tenant info for cache invalidation and room scoping
+    onLinearWebhook = null,
   } = options;
 
   const app = express();
@@ -212,13 +221,44 @@ export function createApp(options = {}) {
   });
 
   // --- Linear webhook ---
-  app.post("/api/webhooks/linear", express.json(), (req, res) => {
-    const { action, type, data: eventData } = req.body;
+  // Use raw body so we can verify the HMAC signature
+  app.post("/api/webhooks/linear", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
+    // Verify signature if secret is configured
+    if (linearWebhookSecret) {
+      const signature = req.headers["linear-signature"];
+      if (!signature) {
+        return res.status(401).json({ error: "Missing signature" });
+      }
+      const crypto = await import("crypto");
+      const expected = crypto.createHmac("sha256", linearWebhookSecret).update(req.body).digest("hex");
+      if (signature !== expected) {
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(req.body.toString("utf8"));
+    } catch {
+      return res.status(400).json({ error: "Invalid JSON" });
+    }
+
+    const { action, type, data: eventData } = payload;
 
     // Respond quickly — Linear expects 200 within seconds
     res.json({ ok: true });
 
-    // Process asynchronously
+    // Cloud mode: let the cloud handler resolve tenant and scope invalidation/emit
+    if (onLinearWebhook) {
+      try {
+        await onLinearWebhook({ action, type, eventData, payload, io });
+      } catch (err) {
+        console.error("Linear webhook handler error:", err.message);
+      }
+      return;
+    }
+
+    // Standalone mode: invalidate global cache + emit to all clients
     if (globalCache) {
       const teamId = eventData?.teamId || eventData?.team?.id;
       if (type === "Issue" || type === "Comment") {
@@ -231,8 +271,6 @@ export function createApp(options = {}) {
         globalCache.invalidateAll();
       }
     }
-
-    // Push to all connected clients
     io.emit("data-updated", { type, action });
   });
 
@@ -243,7 +281,8 @@ export function createApp(options = {}) {
     });
   }
 
-  // Availability API
+  // Availability API (disabled in cloud mode — cloud mounts tenant-aware versions)
+  if (!skipBoardRoutes) {
   function availabilityPath(teamId, cycleId) {
     const safe = (s) => s.replace(/[^a-zA-Z0-9_-]/g, "");
     return path.join(dataDir, `availability_${safe(teamId)}_${safe(cycleId)}.json`);
@@ -321,8 +360,10 @@ export function createApp(options = {}) {
       res.status(500).json({ error: "Failed to save hours" });
     }
   });
+  } // end skipBoardRoutes
 
-  // Board socket.io
+  // Board socket.io (disabled in cloud mode — cloud mounts tenant-aware versions)
+  if (!skipSocketHandlers) {
   io.on("connection", (socket) => {
     let currentRoom = null;
 
@@ -417,6 +458,12 @@ export function createApp(options = {}) {
       }
     });
   });
+  } // end skipSocketHandlers
+
+  // Hook for cloud to register its own routes and socket handlers
+  if (afterRoutes) {
+    afterRoutes({ app, io });
+  }
 
   // Serve frontend (standalone mode)
   if (serveFrontend) {

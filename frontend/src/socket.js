@@ -101,11 +101,12 @@ export function useDemoBoard(teamId, cycleId) {
   return { board, connected: true, emit, voterId };
 }
 
-export function useBoardSocket(teamId, cycleId) {
+export function useBoardSocket(teamId, cycleId, userId = null) {
   const [board, setBoard] = useState(null);
   const [connected, setConnected] = useState(false);
   const socketRef = useRef(null);
-  const voterId = useRef(getVoterId()).current;
+  // Server derives voterId from session; we only need our own id to identify "myVote"
+  const voterId = userId;
 
   useEffect(() => {
     if (!teamId || !cycleId) return;
@@ -115,9 +116,9 @@ export function useBoardSocket(teamId, cycleId) {
 
     socket.on("connect", () => {
       setConnected(true);
-      socket.emit("join-board", { teamId, cycleId, voterId });
-      // Fetch full board state via REST
-      fetch(`/api/board/${teamId}/${cycleId}?voterId=${voterId}`)
+      socket.emit("join-board", { teamId, cycleId });
+      // Fetch full board state via REST (server uses session.userId as voterId)
+      fetch(`/api/board/${teamId}/${cycleId}`)
         .then((r) => r.json())
         .then((data) => setBoard(data))
         .catch(console.error);

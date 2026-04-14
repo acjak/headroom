@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useTheme } from "../theme.jsx";
 import { useBoardSocket, useDemoBoard } from "../socket.js";
+import { useAuth } from "../AuthContext.jsx";
 
 const MONO = "'JetBrains Mono', 'SF Mono', monospace";
 const SANS = "'DM Sans', system-ui, sans-serif";
@@ -243,7 +244,9 @@ function ColumnHeader({ col, c, onRename, onDelete }) {
 
 export default function KanbanBoard({ teamId, cycleId, demo = false }) {
   const { colors: c } = useTheme();
-  const socketHook = useBoardSocket(demo ? null : teamId, demo ? null : cycleId);
+  const { auth } = useAuth();
+  const userId = auth && typeof auth === "object" ? auth.user?.id : null;
+  const socketHook = useBoardSocket(demo ? null : teamId, demo ? null : cycleId, userId);
   const demoHook = useDemoBoard(teamId, cycleId);
   const { board, connected, emit, voterId } = demo ? demoHook : socketHook;
   const [confirmReset, setConfirmReset] = useState(null);
@@ -291,7 +294,8 @@ export default function KanbanBoard({ teamId, cycleId, demo = false }) {
   };
 
   const handleVote = (cardId) => {
-    emit("toggle-vote", { cardId, voterId });
+    // Server derives voterId from session; client just sends cardId
+    emit("toggle-vote", { cardId });
   };
 
   const handleAddColumn = () => {
