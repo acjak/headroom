@@ -692,7 +692,7 @@ export default function App({ demo = false }) {
       )}
 
       {!loading && selectedTeam && showInsights && !showForecasting && !showStandup && (
-        <InsightsView issues={issues} cycle={activeCycle} avatars={avatars} />
+        <InsightsView issues={issues} cycle={activeCycle} cycles={cycles} avatars={avatars} />
       )}
 
       {!loading && selectedTeam && !showForecasting && !showInsights && !showStandup && (

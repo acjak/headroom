@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { linearQuery, ISSUE_HISTORY_QUERY } from "../api.js";
+import { linearQuery, ISSUE_HISTORY_QUERY, fetchCycleIssues } from "../api.js";
 import { useTheme } from "../theme.jsx";
-import { flatIssues, priorityLabel } from "../utils.js";
+import { flatIssues, priorityLabel, statusIcon, statusColor } from "../utils.js";
 import { useUnit } from "../useUnit.js";
 
 const MONO = "'JetBrains Mono', 'SF Mono', monospace";
@@ -454,9 +454,138 @@ function DriftPatternsPanel({ issues, historyMap, cycleStartsAt, c }) {
   );
 }
 
+// --- Carry-Over Panel ---
+
+function CarryOverPanel({ issues, cycle, cycles, c, u }) {
+  const [carryOvers, setCarryOvers] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const currentIssues = flatIssues(issues);
+  const currentIds = new Set(currentIssues.map((i) => i.id));
+
+  useEffect(() => {
+    if (!cycle || !cycles || cycles.length < 2) return;
+
+    const currentIdx = cycles.findIndex((cy) => cy.id === cycle.id);
+    if (currentIdx <= 0) return;
+
+    // Fetch issues from the previous 3 cycles (or fewer if not enough)
+    const prevCycles = cycles.slice(Math.max(0, currentIdx - 3), currentIdx);
+
+    setLoading(true);
+    (async () => {
+      const cycleIssueMap = {};
+      for (const cy of prevCycles) {
+        try {
+          const data = await fetchCycleIssues(cy.id);
+          const nodes = data.cycle?.issues?.nodes || [];
+          cycleIssueMap[cy.id] = new Set(nodes.map((n) => n.id));
+        } catch {
+          cycleIssueMap[cy.id] = new Set();
+        }
+      }
+
+      // For each current issue, count how many previous cycles it appeared in
+      const issueHistory = currentIssues.map((issue) => {
+        const appearedIn = prevCycles.filter((cy) => cycleIssueMap[cy.id].has(issue.id));
+        return { issue, cyclesAppeared: appearedIn.length, cycleNumbers: appearedIn.map((cy) => cy.number) };
+      }).filter((i) => i.cyclesAppeared > 0)
+        .sort((a, b) => b.cyclesAppeared - a.cyclesAppeared);
+
+      setCarryOvers(issueHistory);
+      setLoading(false);
+    })();
+  }, [cycle?.id, cycles?.length]);
+
+  if (loading) {
+    return <div style={{ textAlign: "center", padding: 30, color: c.textMuted, fontSize: 13 }}>Analyzing previous cycles...</div>;
+  }
+
+  if (!carryOvers || carryOvers.length === 0) {
+    return <div style={{ textAlign: "center", padding: 30, color: c.textMuted, fontSize: 13 }}>No carry-over issues found in this cycle.</div>;
+  }
+
+  const stillOpen = carryOvers.filter((i) => i.issue.stateType !== "completed" && i.issue.stateType !== "canceled");
+  const resolved = carryOvers.filter((i) => i.issue.stateType === "completed" || i.issue.stateType === "canceled");
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: c.textSecondary, marginBottom: 4 }}>Carry-over issues</div>
+      <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 12 }}>
+        Issues that appeared in previous cycles and are still in this one.
+        {" "}<span style={{ fontFamily: MONO, color: c.accent }}>{carryOvers.length}</span> carry-overs found,
+        {" "}<span style={{ fontFamily: MONO, color: stillOpen.length > 0 ? c.red : c.green }}>{stillOpen.length}</span> still open.
+      </div>
+
+      <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{
+          display: "grid", gridTemplateColumns: "20px 70px 1fr 100px 80px 60px",
+          gap: 8, padding: "8px 16px", fontSize: 10, fontWeight: 600,
+          color: c.textMuted, textTransform: "uppercase", letterSpacing: 0.5,
+          borderBottom: `1px solid ${c.border}`,
+        }}>
+          <span />
+          <span>ID</span>
+          <span>Title</span>
+          <span>Previous cycles</span>
+          <span>Assignee</span>
+          <span>Est.</span>
+        </div>
+
+        {carryOvers.map(({ issue, cyclesAppeared, cycleNumbers }) => (
+          <div key={issue.id} style={{
+            display: "grid", gridTemplateColumns: "20px 70px 1fr 100px 80px 60px",
+            gap: 8, padding: "8px 16px", fontSize: 13,
+            borderBottom: `1px solid ${c.divider}`, alignItems: "center",
+          }}
+            onMouseEnter={(e) => e.currentTarget.style.background = c.accentBg}
+            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+          >
+            <span style={{ color: statusColor(issue.stateType), fontSize: 14 }}>{statusIcon(issue.stateType)}</span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: c.textMuted }}>{issue.identifier}</span>
+            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: c.textSecondary }}>
+              {issue.title}
+              {issue.projectName && (
+                <span style={{
+                  fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 6,
+                  background: `${c.textMuted}18`, color: c.textMuted,
+                }}>{issue.projectName}</span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 3 }}>
+              {cycleNumbers.map((n) => (
+                <span key={n} style={{
+                  fontSize: 10, fontFamily: MONO, padding: "1px 6px",
+                  borderRadius: 3, background: `${c.red}18`, color: c.red,
+                }}>C{n}</span>
+              ))}
+            </div>
+            <span style={{ fontSize: 11, color: c.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {issue.assigneeName === "Unassigned" ? "—" : issue.assigneeName?.split(" ")[0]}
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: c.textDim }}>
+              {issue.estimate ? `${issue.estimate}${u}` : "—"}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {stillOpen.length > 0 && (
+        <div style={{ fontSize: 11, color: c.textMuted, marginTop: 8 }}>
+          <span style={{ color: c.red }}>{stillOpen.length} issue{stillOpen.length > 1 ? "s" : ""}</span>
+          {" "}carried over and still not completed.
+          {stillOpen.some((i) => i.cyclesAppeared >= 2) && (
+            <span style={{ color: c.red }}> {stillOpen.filter((i) => i.cyclesAppeared >= 2).length} appeared in 2+ previous cycles.</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Main InsightsView ---
 
-export default function InsightsView({ issues, cycle, avatars = {} }) {
+export default function InsightsView({ issues, cycle, cycles = [], avatars = {} }) {
   const { colors: c } = useTheme();
   const u = useUnit();
   const [historyMap, setHistoryMap] = useState({});
@@ -503,6 +632,7 @@ export default function InsightsView({ issues, cycle, avatars = {} }) {
     { id: "progress", label: "Progress" },
     { id: "drift", label: "Drift ranking" },
     { id: "patterns", label: "Patterns" },
+    { id: "carryover", label: "Carry-over" },
   ];
 
   return (
@@ -539,6 +669,10 @@ export default function InsightsView({ issues, cycle, avatars = {} }) {
           : loading
             ? <div style={{ textAlign: "center", padding: 30, color: c.textMuted, fontSize: 13 }}>Loading estimate history...</div>
             : <div style={{ textAlign: "center", padding: 30, color: c.textMuted, fontSize: 13 }}>No issues to analyze.</div>
+      )}
+
+      {activePanel === "carryover" && (
+        <CarryOverPanel issues={issues} cycle={cycle} cycles={cycles} c={c} u={u} />
       )}
     </div>
   );
