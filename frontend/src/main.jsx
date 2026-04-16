@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "./AuthContext.jsx";
 import LoginPage from "./components/LoginPage.jsx";
 import BillingGate from "./components/BillingGate.jsx";
 import LegalPage from "./components/LegalPage.jsx";
+import ReportView from "./components/ReportView.jsx";
 import { setDemoMode } from "./api.js";
 import {
   demoTeams, demoTeamData, demoCycleIssues, demoIssueHistories,
@@ -53,12 +54,17 @@ function AuthRoot() {
 function Root() {
   const [legalPage, setLegalPage] = useState(null);
   const [showDemo, setShowDemo] = useState(() => window.location.pathname === "/demo");
+  const [reportToken, setReportToken] = useState(() => {
+    const match = window.location.pathname.match(/^\/report\/(.+)$/);
+    return match ? match[1] : null;
+  });
 
-  // Handle /privacy and /terms URLs
+  // Handle /privacy, /terms, and /report/:token URLs
   useEffect(() => {
     const path = window.location.pathname;
     if (path === "/privacy") setLegalPage("privacy");
     else if (path === "/terms") setLegalPage("terms");
+    else if (path.startsWith("/report/")) setReportToken(path.split("/report/")[1]);
   }, []);
 
   // Expose navigation for links
@@ -83,6 +89,8 @@ function Root() {
     window.addEventListener("popstate", handlePop);
     return () => window.removeEventListener("popstate", handlePop);
   }, []);
+
+  if (reportToken) return <ReportView token={reportToken} />;
 
   if (legalPage) {
     return <LegalPage page={legalPage} onBack={() => {

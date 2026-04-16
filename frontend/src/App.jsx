@@ -21,6 +21,10 @@ import Logo from "./components/Logo.jsx";
 import DataFreshness from "./components/DataFreshness.jsx";
 import DriftTrends from "./components/DriftTrends.jsx";
 import CompletionEstimates from "./components/CompletionEstimates.jsx";
+import {
+  IconInsights, IconForecast, IconShare, IconCapacity, IconBurndown,
+  IconVelocity, IconEstimates, IconBoard, IconEdit, IconCollapse, IconExpand,
+} from "./icons.jsx";
 import InsightsView from "./components/InsightsView.jsx";
 
 const MONO = "'JetBrains Mono', 'SF Mono', monospace";
@@ -49,6 +53,10 @@ export default function App({ demo = false }) {
   const [showForecasting, setShowForecasting] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareNote, setShareNote] = useState("");
+  const [shareLink, setShareLink] = useState(null);
+  const [shareLoading, setShareLoading] = useState(false);
 
   // Live update listener
   const selectedTeamRef = useRef(null);
@@ -245,6 +253,95 @@ export default function App({ demo = false }) {
   const donePts = allFlat.filter((i) => i.stateType === "completed").reduce((s, i) => s + (i.estimate || 0), 0);
   const unestCount = allFlat.filter((i) => !i.estimate).length;
   const pctDone = totalPts > 0 ? Math.round((donePts / totalPts) * 100) : 0;
+
+  const handleShareReport = async () => {
+    if (!selectedTeam || !activeCycle) return;
+    setShareLoading(true);
+    try {
+      // Build per-project progress snapshot
+      const projectMap = {};
+      for (const issue of allFlat) {
+        const key = issue.projectId || "__none__";
+        const name = issue.projectName || "No project";
+        if (!projectMap[key]) projectMap[key] = { name, issues: [], milestones: {} };
+        projectMap[key].issues.push(issue);
+        if (issue.milestoneId) {
+          if (!projectMap[key].milestones[issue.milestoneId]) {
+            projectMap[key].milestones[issue.milestoneId] = { name: issue.milestoneName, issues: [] };
+          }
+          projectMap[key].milestones[issue.milestoneId].issues.push(issue);
+        }
+      }
+      const projects = Object.values(projectMap).map((proj) => {
+        const total = proj.issues.reduce((s, i) => s + (i.estimate || 0), 0);
+        const done = proj.issues.filter((i) => i.stateType === "completed").reduce((s, i) => s + (i.estimate || 0), 0);
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        const milestones = Object.values(proj.milestones).map((ms) => {
+          const msTotal = ms.issues.reduce((s, i) => s + (i.estimate || 0), 0);
+          const msDone = ms.issues.filter((i) => i.stateType === "completed").reduce((s, i) => s + (i.estimate || 0), 0);
+          return { name: ms.name, total: msTotal, done: msDone, pct: msTotal > 0 ? Math.round((msDone / msTotal) * 100) : 0 };
+        });
+        return { name: proj.name, total, done, pct, milestones };
+      }).filter((p) => p.total > 0).sort((a, b) => b.pct - a.pct);
+
+      // Build burndown snapshot from cycle history
+      const scope = activeCycle.scopeHistory || [];
+      const completed = activeCycle.completedScopeHistory || [];
+      const burndown = [];
+      const start = new Date(activeCycle.startsAt);
+      for (let i = 0; i < scope.length; i++) {
+        const d = new Date(start.getTime() + i * 86400000);
+        burndown.push({
+          label: formatDate(d),
+          scope: scope[i] || 0,
+          completed: completed[i] || 0,
+          remaining: Math.max(0, (scope[i] || 0) - (completed[i] || 0)),
+        });
+      }
+
+      // Scope change
+      const initialScope = scope[0] || 0;
+      const finalScope = scope[scope.length - 1] || 0;
+      const scopeChange = initialScope > 0 ? Math.round(((finalScope - initialScope) / initialScope) * 100) : null;
+
+      const snapshot = {
+        teamName: selectedTeam.name,
+        cycleNumber: activeCycle.number,
+        cycleStart: activeCycle.startsAt,
+        cycleEnd: activeCycle.endsAt,
+        unit,
+        issueCount: issues.length,
+        totalPts,
+        donePts,
+        pctDone,
+        totalCap,
+        unestCount,
+        projects,
+        burndown,
+        initialScope,
+        finalScope,
+        scopeChange,
+      };
+
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamId: selectedTeam.id,
+          cycleId: activeCycle.id,
+          snapshot,
+          note: shareNote || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.token) {
+        setShareLink(`${window.location.origin}/report/${data.token}`);
+      }
+    } catch (err) {
+      console.error("Failed to create report:", err);
+    }
+    setShareLoading(false);
+  };
 
   const c = colors;
 
@@ -468,19 +565,108 @@ export default function App({ demo = false }) {
             border: `1px solid ${showInsights ? c.accent : c.border}`,
             borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600,
             color: showInsights ? "#fff" : c.textSecondary,
-            cursor: "pointer", fontFamily: SANS,
-          }}>Insights</button>
+            cursor: "pointer", fontFamily: SANS, display: "inline-flex", alignItems: "center",
+          }}><IconInsights style={{ marginRight: 5 }} />Insights</button>
           <button onClick={() => { setShowForecasting((f) => !f); setShowInsights(false); }} style={{
             background: showForecasting ? c.accent : c.card,
             border: `1px solid ${showForecasting ? c.accent : c.border}`,
             borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600,
             color: showForecasting ? "#fff" : c.textSecondary,
-            cursor: "pointer", fontFamily: SANS,
-          }}>Forecasting</button>
+            cursor: "pointer", fontFamily: SANS, display: "inline-flex", alignItems: "center",
+          }}><IconForecast style={{ marginRight: 5 }} />Forecasting</button>
+          {!demo && activeCycle && (
+            <button onClick={() => { setShowShareModal(true); setShareLink(null); setShareNote(""); }} style={{
+              background: c.card, border: `1px solid ${c.border}`,
+              borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              color: c.textSecondary, cursor: "pointer", fontFamily: SANS, display: "inline-flex", alignItems: "center",
+            }}><IconShare style={{ marginRight: 5 }} />Share</button>
+          )}
         </div>
       )}
 
       {error && <div style={{ background: c.redBg, border: `1px solid ${c.redBorder}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: c.red }}>{error}</div>}
+
+      {/* Share report modal */}
+      {showShareModal && (
+        <>
+          <div onClick={() => setShowShareModal(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200 }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            background: c.card, border: `1px solid ${c.border}`, borderRadius: 12,
+            padding: "28px 32px", zIndex: 201, minWidth: 400, maxWidth: 500,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+          }}>
+            {!shareLink ? (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Share cycle report</div>
+                <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 16 }}>
+                  Creates a snapshot of Cycle {activeCycle?.number} that anyone with the link can view.
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Note (optional)</div>
+                  <textarea
+                    value={shareNote}
+                    onChange={(e) => setShareNote(e.target.value)}
+                    placeholder="e.g. This cycle we focused on API v2..."
+                    style={{
+                      width: "100%", minHeight: 80, padding: "10px 12px",
+                      background: c.input, border: `1px solid ${c.border}`, borderRadius: 6,
+                      color: c.text, fontSize: 13, fontFamily: SANS,
+                      resize: "vertical", outline: "none", boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => setShowShareModal(false)} style={{
+                    background: "transparent", border: `1px solid ${c.border}`, borderRadius: 6,
+                    padding: "8px 16px", fontSize: 12, color: c.textSecondary,
+                    cursor: "pointer", fontFamily: SANS,
+                  }}>Cancel</button>
+                  <button onClick={handleShareReport} disabled={shareLoading} style={{
+                    background: c.accent, border: "none", borderRadius: 6,
+                    padding: "8px 20px", fontSize: 12, fontWeight: 600, color: "#fff",
+                    cursor: shareLoading ? "wait" : "pointer", fontFamily: SANS,
+                    opacity: shareLoading ? 0.7 : 1,
+                  }}>{shareLoading ? "Creating..." : "Create report"}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Report created</div>
+                <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 16 }}>
+                  Anyone with this link can view the snapshot. No login required.
+                </div>
+                <div style={{
+                  display: "flex", gap: 8, alignItems: "center",
+                  background: c.input, border: `1px solid ${c.border}`, borderRadius: 6,
+                  padding: "8px 12px",
+                }}>
+                  <input
+                    readOnly value={shareLink}
+                    onFocus={(e) => e.target.select()}
+                    style={{
+                      flex: 1, background: "transparent", border: "none",
+                      color: c.text, fontSize: 12, fontFamily: MONO, outline: "none",
+                    }}
+                  />
+                  <button onClick={() => { navigator.clipboard.writeText(shareLink); }} style={{
+                    background: c.accent, border: "none", borderRadius: 4,
+                    padding: "4px 12px", fontSize: 11, fontWeight: 600, color: "#fff",
+                    cursor: "pointer", fontFamily: SANS, whiteSpace: "nowrap",
+                  }}>Copy</button>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                  <button onClick={() => setShowShareModal(false)} style={{
+                    background: "transparent", border: `1px solid ${c.border}`, borderRadius: 6,
+                    padding: "8px 16px", fontSize: 12, color: c.textSecondary,
+                    cursor: "pointer", fontFamily: SANS,
+                  }}>Done</button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
       {loading && <div style={{ textAlign: "center", padding: 60, color: c.textMuted }}><div style={{ fontSize: 13 }}>{step}</div></div>}
 
       {/* Forecasting view (replaces cycle content) */}
@@ -516,14 +702,15 @@ export default function App({ demo = false }) {
 
           {/* Tabs */}
           <div style={{ display: "flex", gap: 0, marginBottom: 14, borderBottom: `1px solid ${c.border}` }}>
-            {[{ id: "capacity", label: "Capacity" }, { id: "burndown", label: "Burndown" }, { id: "velocity", label: "Velocity" }, { id: "estimates", label: "Estimates" }, { id: "board", label: "Board" }].map((tab) => (
+            {[{ id: "capacity", label: "Capacity", Icon: IconCapacity }, { id: "burndown", label: "Burndown", Icon: IconBurndown }, { id: "velocity", label: "Velocity", Icon: IconVelocity }, { id: "estimates", label: "Estimates", Icon: IconEstimates }, { id: "board", label: "Board", Icon: IconBoard }].map((tab) => (
               <button key={tab.id} onClick={() => switchTab(tab.id)} style={{
                 background: "transparent", border: "none",
                 borderBottom: activeTab === tab.id ? `2px solid ${c.accent}` : "2px solid transparent",
                 padding: "8px 16px", fontSize: 13, fontWeight: activeTab === tab.id ? 600 : 400,
                 color: activeTab === tab.id ? c.text : c.textMuted,
                 cursor: "pointer", fontFamily: SANS, marginBottom: -1,
-              }}>{tab.label}</button>
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}><tab.Icon style={{ width: 13, height: 13 }} />{tab.label}</button>
             ))}
           </div>
 
@@ -617,12 +804,13 @@ export default function App({ demo = false }) {
                   padding: "4px 10px", fontSize: 11,
                   color: showSettings ? c.accent : c.text,
                   cursor: "pointer", fontFamily: SANS,
-                }}>Edit capacity</button>
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                }}><IconEdit style={{ width: 12, height: 12 }} />Edit capacity</button>
                 <button onClick={() => setAllExpanded((e) => !e)} style={{
                   background: c.card, border: `1px solid ${c.border}`, borderRadius: 5,
                   padding: "4px 10px", fontSize: 11, color: c.textSecondary,
-                  cursor: "pointer", fontFamily: SANS,
-                }}>{allExpanded ? "Collapse all" : "Expand all"}</button>
+                  cursor: "pointer", fontFamily: SANS, display: "inline-flex", alignItems: "center", gap: 4,
+                }}>{allExpanded ? <><IconCollapse style={{ width: 12, height: 12 }} />Collapse all</> : <><IconExpand style={{ width: 12, height: 12 }} />Expand all</>}</button>
               </div>
               {showSettings && activeCycle && (
                 <AvailabilityCalendar
