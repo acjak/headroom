@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "./components/ui/dialog.jsx";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator,
+} from "./components/ui/dropdown-menu.jsx";
 import {
   fetchTeams, fetchTeamData, fetchCycleIssues, fetchBacklogIssues,
   refreshServerCache, linearQuery, ISSUE_HISTORY_QUERY,
@@ -61,12 +66,27 @@ export default function App({ demo = false }) {
   const [showForecasting, setShowForecasting] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
   const [showStandup, setShowStandup] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareNote, setShareNote] = useState("");
   const [shareLink, setShareLink] = useState(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [showPrefs, setShowPrefs] = useState(false);
+
+  // Radix Dialog relies on @radix-ui/react-remove-scroll which leaves
+  // `pointer-events: none` on <body> after close in our setup — likely because theme.jsx
+  // writes its own inline body styles (background/color) that interfere with the lib's
+  // save/restore snapshot. Poll briefly after any modal closes and clear it ourselves
+  // so the UI never gets stuck unclickable.
+  useEffect(() => {
+    if (showPrefs || showShareModal) return;
+    const clear = () => {
+      if (document.body.style.pointerEvents === "none") {
+        document.body.style.pointerEvents = "";
+      }
+    };
+    const handles = [0, 50, 200, 500].map((d) => setTimeout(clear, d));
+    return () => handles.forEach(clearTimeout);
+  }, [showPrefs, showShareModal]);
 
   // Settings: cloud mode reads from tenant settings, demo mode reads from local state.
   const activeSettings = demo ? demoSettings : (auth && typeof auth === "object" ? auth.settings : null) || {};
@@ -415,136 +435,101 @@ export default function App({ demo = false }) {
             </select>
           )}
           <DataFreshness onRefresh={handleRefresh} />
-          <div style={{ position: "relative" }}>
-            <button onClick={() => setShowUserMenu((m) => !m)} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              background: c.card, border: `1px solid ${c.border}`, borderRadius: 6,
-              padding: "4px 10px 4px 4px", fontSize: 11, color: c.textSecondary,
-              cursor: "pointer", fontFamily: SANS,
-            }}>
-              {auth && auth !== "standalone" && auth.user ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: c.card, border: `1px solid ${c.border}`, borderRadius: 6,
+                padding: "4px 10px 4px 4px", fontSize: 11, color: c.textSecondary,
+                cursor: "pointer", fontFamily: SANS,
+              }}>
+                {auth && auth !== "standalone" && auth.user ? (
+                  <>
+                    {auth.user.avatarUrl ? (
+                      <img src={auth.user.avatarUrl} alt="" style={{ width: 22, height: 22, borderRadius: "50%" }} />
+                    ) : (
+                      <div style={{ width: 22, height: 22, borderRadius: "50%", background: c.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: c.accent }}>
+                        {auth.user.name?.[0] || "?"}
+                      </div>
+                    )}
+                    {auth.user.name?.split(" ")[0] || "User"}
+                  </>
+                ) : (
+                  <span style={{ fontSize: 14, lineHeight: "22px" }}>{"\u2699"}</span>
+                )}
+                <span style={{ fontSize: 8, color: c.textDim, marginLeft: 2 }}>{"\u25BC"}</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[12rem]">
+              {auth && auth !== "standalone" && auth.user && (
                 <>
-                  {auth.user.avatarUrl ? (
-                    <img src={auth.user.avatarUrl} alt="" style={{ width: 22, height: 22, borderRadius: "50%" }} />
-                  ) : (
-                    <div style={{ width: 22, height: 22, borderRadius: "50%", background: c.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: c.accent }}>
-                      {auth.user.name?.[0] || "?"}
-                    </div>
-                  )}
-                  {auth.user.name?.split(" ")[0] || "User"}
+                  <DropdownMenuLabel className="normal-case tracking-normal font-normal text-muted-foreground">
+                    {auth.user.email || auth.user.name}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
                 </>
-              ) : (
-                <span style={{ fontSize: 14, lineHeight: "22px" }}>{"\u2699"}</span>
               )}
-              <span style={{ fontSize: 8, color: c.textDim, marginLeft: 2 }}>{"\u25BC"}</span>
-            </button>
-            {showUserMenu && (
-              <>
-                <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }} />
-                <div style={{
-                  position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 100,
-                  background: c.card, border: `1px solid ${c.border}`, borderRadius: 8,
-                  padding: 4, minWidth: 180, boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
-                }}>
-                  {auth && auth !== "standalone" && auth.user && (
-                    <div style={{ padding: "8px 12px", fontSize: 11, color: c.textMuted, borderBottom: `1px solid ${c.divider}` }}>
-                      {auth.user.email || auth.user.name}
-                    </div>
-                  )}
 
-                  {/* Theme toggle */}
-                  <button onClick={() => { toggle(); }} style={{
-                    display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center",
-                    background: "transparent", border: "none", borderRadius: 4,
-                    padding: "8px 12px", fontSize: 12, color: c.text,
-                    cursor: "pointer", fontFamily: SANS,
-                  }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = c.accentBg}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                  >
-                    <span>Theme</span>
-                    <span style={{ fontSize: 11, color: c.textMuted, fontFamily: MONO }}>{mode === "dark" ? "\u263E dark" : "\u2600 light"}</span>
-                  </button>
+              {/* Theme toggle — keep menu open via preventDefault */}
+              <DropdownMenuItem onSelect={(e) => { e.preventDefault(); toggle(); }} className="justify-between">
+                <span>Theme</span>
+                <span className="text-xs text-muted-foreground font-mono">
+                  {mode === "dark" ? "\u263E dark" : "\u2600 light"}
+                </span>
+              </DropdownMenuItem>
 
-                  {/* Font size */}
-                  <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: c.text }}>Font size</span>
-                    <div style={{ display: "flex", gap: 2 }}>
-                      {fontScales.map((s) => (
-                        <button key={s.label} onClick={() => setFontScale(s.value)} style={{
-                          background: fontScale === s.value ? c.accentBg : "transparent",
-                          border: `1px solid ${fontScale === s.value ? c.accent : "transparent"}`,
-                          borderRadius: 3, padding: "2px 7px", fontSize: 11, fontFamily: MONO,
-                          color: fontScale === s.value ? c.accent : c.textMuted,
-                          cursor: "pointer",
-                        }}>{s.label}</button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Workspace preferences — owner only, always in demo */}
-                  {(demo || (auth && auth !== "standalone" && auth.user?.role === "owner")) && (
-                    <div style={{ padding: "8px 12px" }}>
-                      <button onClick={() => { setShowUserMenu(false); setShowPrefs(true); }} style={{
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                        width: "100%",
-                        background: c.accentBg, color: c.accent,
-                        border: `1px solid ${c.accent}`, borderRadius: 6,
-                        padding: "7px 14px", fontSize: 12, fontWeight: 600,
-                        cursor: "pointer", fontFamily: SANS,
-                      }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = c.accent; e.currentTarget.style.color = "#fff"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = c.accentBg; e.currentTarget.style.color = c.accent; }}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                          <circle cx="12" cy="12" r="3" />
-                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                        </svg>
-                        Preferences
-                      </button>
-                    </div>
-                  )}
-
-                  <div style={{ borderTop: `1px solid ${c.divider}`, margin: "2px 0" }} />
-
-                  {/* Manage billing — owner only */}
-                  {auth && auth !== "standalone" && auth.user?.role === "owner" && (
-                    <button onClick={async () => {
-                      setShowUserMenu(false);
-                      const res = await fetch("/api/billing/portal", { method: "POST" });
-                      const data = await res.json();
-                      if (data.url) window.location.href = data.url;
-                    }} style={{
-                      display: "block", width: "100%", textAlign: "left",
-                      background: "transparent", border: "none", borderRadius: 4,
-                      padding: "8px 12px", fontSize: 12, color: c.text,
-                      cursor: "pointer", fontFamily: SANS,
-                    }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = c.accentBg}
-                      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                    >
-                      Manage billing
-                    </button>
-                  )}
-
-                  {/* Sign out — cloud mode only */}
-                  {auth && auth !== "standalone" && auth.user && (
-                    <button onClick={() => { setShowUserMenu(false); logout(); }} style={{
-                      display: "block", width: "100%", textAlign: "left",
-                      background: "transparent", border: "none", borderRadius: 4,
-                      padding: "8px 12px", fontSize: 12, color: c.text,
-                      cursor: "pointer", fontFamily: SANS,
-                    }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = c.accentBg}
-                      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                    >
-                      Sign out
-                    </button>
-                  )}
+              {/* Font size — inline row of buttons inside the menu */}
+              <div className="px-3 py-2 flex justify-between items-center gap-3">
+                <span className="text-sm text-foreground">Font size</span>
+                <div className="flex gap-0.5 shrink-0">
+                  {fontScales.map((s) => (
+                    <button key={s.label} onClick={() => setFontScale(s.value)} className="font-mono text-[11px] px-2 py-0.5 rounded-sm cursor-pointer"
+                      style={{
+                        background: fontScale === s.value ? c.accentBg : "transparent",
+                        border: `1px solid ${fontScale === s.value ? c.accent : "transparent"}`,
+                        color: fontScale === s.value ? c.accent : c.textMuted,
+                      }}>{s.label}</button>
+                  ))}
                 </div>
-              </>
-            )}
-          </div>
+              </div>
+
+              {/* Workspace preferences — owner only, always in demo */}
+              {(demo || (auth && auth !== "standalone" && auth.user?.role === "owner")) && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => setShowPrefs(true)}
+                    className="justify-center font-semibold focus:bg-primary focus:text-primary-foreground"
+                    style={{ color: c.accent, background: c.accentBg, border: `1px solid ${c.accent}`, margin: 4 }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    Preferences
+                  </DropdownMenuItem>
+                </>
+              )}
+
+              {auth && auth !== "standalone" && auth.user?.role === "owner" && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={async () => {
+                    const res = await fetch("/api/billing/portal", { method: "POST" });
+                    const data = await res.json();
+                    if (data.url) window.location.href = data.url;
+                  }}>Manage billing</DropdownMenuItem>
+                </>
+              )}
+
+              {auth && auth !== "standalone" && auth.user && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => logout()}>Sign out</DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -626,215 +611,170 @@ export default function App({ demo = false }) {
       {error && <div style={{ background: c.redBg, border: `1px solid ${c.redBorder}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: c.red }}>{error}</div>}
 
       {/* Share report modal */}
-      {showShareModal && (
-        <>
-          <div onClick={() => setShowShareModal(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200 }} />
-          <div style={{
-            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-            background: c.card, border: `1px solid ${c.border}`, borderRadius: 12,
-            padding: "28px 32px", zIndex: 201, minWidth: 400, maxWidth: 500,
-            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-          }}>
-            {!shareLink ? (
-              <>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Share cycle report</div>
-                <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 16 }}>
+      <Dialog open={showShareModal} onOpenChange={setShowShareModal}>
+        <DialogContent className="max-w-md">
+          {!shareLink ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Share cycle report</DialogTitle>
+                <DialogDescription>
                   Creates a snapshot of Cycle {activeCycle?.number} that anyone with the link can view.
-                </div>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Note (optional)</div>
-                  <textarea
-                    value={shareNote}
-                    onChange={(e) => setShareNote(e.target.value)}
-                    placeholder="e.g. This cycle we focused on API v2..."
-                    style={{
-                      width: "100%", minHeight: 80, padding: "10px 12px",
-                      background: c.input, border: `1px solid ${c.border}`, borderRadius: 6,
-                      color: c.text, fontSize: 13, fontFamily: SANS,
-                      resize: "vertical", outline: "none", boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button onClick={() => setShowShareModal(false)} style={{
-                    background: "transparent", border: `1px solid ${c.border}`, borderRadius: 6,
-                    padding: "8px 16px", fontSize: 12, color: c.textSecondary,
-                    cursor: "pointer", fontFamily: SANS,
-                  }}>Cancel</button>
-                  <button onClick={handleShareReport} disabled={shareLoading} style={{
-                    background: c.accent, border: "none", borderRadius: 6,
-                    padding: "8px 20px", fontSize: 12, fontWeight: 600, color: "#fff",
-                    cursor: shareLoading ? "wait" : "pointer", fontFamily: SANS,
-                    opacity: shareLoading ? 0.7 : 1,
-                  }}>{shareLoading ? "Creating..." : "Create report"}</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Report created</div>
-                <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 16 }}>
+                </DialogDescription>
+              </DialogHeader>
+              <div>
+                <div className="text-[11px] text-muted-foreground mb-1 uppercase tracking-wider">Note (optional)</div>
+                <textarea
+                  value={shareNote}
+                  onChange={(e) => setShareNote(e.target.value)}
+                  placeholder="e.g. This cycle we focused on API v2..."
+                  className="w-full min-h-[80px] px-3 py-2.5 rounded-md text-sm outline-none resize-y box-border"
+                  style={{
+                    background: c.input, border: `1px solid ${c.border}`,
+                    color: c.text, fontFamily: SANS,
+                  }}
+                />
+              </div>
+              <DialogFooter>
+                <button onClick={() => setShowShareModal(false)} className="rounded-md px-4 py-2 text-xs cursor-pointer"
+                  style={{ background: "transparent", border: `1px solid ${c.border}`, color: c.textSecondary, fontFamily: SANS }}>Cancel</button>
+                <button onClick={handleShareReport} disabled={shareLoading} className="rounded-md px-5 py-2 text-xs font-semibold text-white"
+                  style={{ background: c.accent, cursor: shareLoading ? "wait" : "pointer", opacity: shareLoading ? 0.7 : 1, fontFamily: SANS }}>
+                  {shareLoading ? "Creating..." : "Create report"}
+                </button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Report created</DialogTitle>
+                <DialogDescription>
                   Anyone with this link can view the snapshot. No login required.
-                </div>
-                <div style={{
-                  display: "flex", gap: 8, alignItems: "center",
-                  background: c.input, border: `1px solid ${c.border}`, borderRadius: 6,
-                  padding: "8px 12px",
-                }}>
-                  <input
-                    readOnly value={shareLink}
-                    onFocus={(e) => e.target.select()}
-                    style={{
-                      flex: 1, background: "transparent", border: "none",
-                      color: c.text, fontSize: 12, fontFamily: MONO, outline: "none",
-                    }}
-                  />
-                  <button onClick={() => { navigator.clipboard.writeText(shareLink); }} style={{
-                    background: c.accent, border: "none", borderRadius: 4,
-                    padding: "4px 12px", fontSize: 11, fontWeight: 600, color: "#fff",
-                    cursor: "pointer", fontFamily: SANS, whiteSpace: "nowrap",
-                  }}>Copy</button>
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-                  <button onClick={() => setShowShareModal(false)} style={{
-                    background: "transparent", border: `1px solid ${c.border}`, borderRadius: 6,
-                    padding: "8px 16px", fontSize: 12, color: c.textSecondary,
-                    cursor: "pointer", fontFamily: SANS,
-                  }}>Done</button>
-                </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
-      {showPrefs && (
-        <>
-          <div onClick={() => setShowPrefs(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200 }} />
-          <div role="dialog" aria-modal="true" aria-labelledby="prefs-title" style={{
-            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-            background: c.card, border: `1px solid ${c.border}`, borderRadius: 12,
-            padding: "28px 32px", zIndex: 201, minWidth: 520, maxWidth: 620,
-            maxHeight: "calc(100vh - 64px)", overflowY: "auto",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <div id="prefs-title" style={{ fontSize: 18, fontWeight: 700 }}>Preferences</div>
-              <button onClick={() => setShowPrefs(false)} aria-label="Close" style={{
-                background: "transparent", border: "none", color: c.textMuted,
-                cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4,
-              }}>&times;</button>
-            </div>
-            <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 20 }}>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex items-center gap-2 rounded-md px-3 py-2"
+                style={{ background: c.input, border: `1px solid ${c.border}` }}>
+                <input
+                  readOnly value={shareLink}
+                  onFocus={(e) => e.target.select()}
+                  className="flex-1 bg-transparent border-none outline-none text-xs"
+                  style={{ color: c.text, fontFamily: MONO }}
+                />
+                <button onClick={() => { navigator.clipboard.writeText(shareLink); }} className="rounded px-3 py-1 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
+                  style={{ background: c.accent, fontFamily: SANS }}>Copy</button>
+              </div>
+              <DialogFooter>
+                <button onClick={() => setShowShareModal(false)} className="rounded-md px-4 py-2 text-xs cursor-pointer"
+                  style={{ background: "transparent", border: `1px solid ${c.border}`, color: c.textSecondary, fontFamily: SANS }}>Done</button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showPrefs} onOpenChange={setShowPrefs}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Preferences</DialogTitle>
+            <DialogDescription>
               Workspace-wide settings. {demo ? "In demo mode these apply locally, for this session only." : "Applies to everyone on the team."}
-            </div>
+            </DialogDescription>
+          </DialogHeader>
 
-            {/* Estimate unit */}
-            <div style={{ padding: "16px 0", borderTop: `1px solid ${c.divider}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>Estimate unit</div>
-                  <div style={{ fontSize: 12, color: c.textMuted, marginTop: 4, lineHeight: 1.5 }}>
-                    How estimates are displayed across capacity, burndown, and forecasting views.
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-                  {[{ id: "hours", label: "Hours" }, { id: "points", label: "Points" }].map((opt) => (
-                    <button key={opt.id} onClick={() => updateSettings({ unit: opt.id })} style={{
+          {/* Estimate unit */}
+          <div className="py-3 border-t border-border">
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <div className="text-sm font-semibold text-foreground">Estimate unit</div>
+              <div className="flex gap-0.5 shrink-0">
+                {[{ id: "hours", label: "Hours" }, { id: "points", label: "Points" }].map((opt) => (
+                  <button key={opt.id} onClick={() => updateSettings({ unit: opt.id })} className="font-mono text-xs px-3 py-1 rounded cursor-pointer transition-colors"
+                    style={{
                       background: unit === opt.id ? c.accentBg : "transparent",
                       border: `1px solid ${unit === opt.id ? c.accent : c.border}`,
-                      borderRadius: 4, padding: "5px 12px", fontSize: 12, fontFamily: MONO,
                       color: unit === opt.id ? c.accent : c.textMuted,
-                      cursor: "pointer",
                     }}>{opt.label}</button>
-                  ))}
-                </div>
+                ))}
               </div>
             </div>
-
-            {/* Default per-day capacity */}
-            <div style={{ padding: "16px 0", borderTop: `1px solid ${c.divider}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>
-                    Default {unit === "points" ? "points" : "hours"} per day
-                  </div>
-                  <div style={{ fontSize: 12, color: c.textMuted, marginTop: 4, lineHeight: 1.5 }}>
-                    Per-person daily capacity used when a cycle hasn't been customised. Individual cycles can still override this in the availability calendar.
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <input
-                    type="number" min={0.5} step={0.5}
-                    value={defaultPerDay}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && v >= 0) updateSettings({ default_points_per_day: v });
-                    }}
-                    style={{
-                      width: 72, padding: "5px 10px", fontSize: 14, fontFamily: MONO,
-                      background: c.input, border: `1px solid ${c.border}`, borderRadius: 4,
-                      color: c.text, textAlign: "center", outline: "none",
-                    }}
-                  />
-                  <span style={{ fontSize: 11, color: c.textMuted, fontFamily: MONO }}>{u}/day</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Parent estimate rollup */}
-            <div style={{ padding: "16px 0", borderTop: `1px solid ${c.divider}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>Parent estimate</div>
-                  <div style={{ fontSize: 12, color: c.textMuted, marginTop: 4, lineHeight: 1.5 }}>
-                    {rollupMode === "children"
-                      ? "When a parent has estimated sub-issues, use the sum of the sub-issues. Otherwise use the parent's own estimate. Recommended because Fibonacci estimates rarely add up cleanly."
-                      : "Always trust the parent's estimate. Ignore sub-issue estimates entirely."}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-                  {[{ id: "children", label: "Sum of subs" }, { id: "parent", label: "Own" }].map((opt) => (
-                    <button key={opt.id} onClick={() => updateSettings({ estimate_rollup: opt.id })} style={{
-                      background: rollupMode === opt.id ? c.accentBg : "transparent",
-                      border: `1px solid ${rollupMode === opt.id ? c.accent : c.border}`,
-                      borderRadius: 4, padding: "5px 12px", fontSize: 12, fontFamily: MONO,
-                      color: rollupMode === opt.id ? c.accent : c.textMuted,
-                      cursor: "pointer",
-                    }}>{opt.label}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Backfill closed cycles */}
-            <div style={{ padding: "16px 0", borderTop: `1px solid ${c.divider}` }}>
-              <label style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={backfillClosed}
-                  onChange={(e) => updateSettings({ backfill_closed_cycles: e.target.checked })}
-                  style={{ marginTop: 3, cursor: "pointer", width: 16, height: 16 }}
-                />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>
-                    Adjust closed cycles when sub-issue estimates change
-                  </div>
-                  <div style={{ fontSize: 12, color: c.textMuted, marginTop: 4, lineHeight: 1.5 }}>
-                    Off keeps historical drift frozen as of when each cycle ended. On re-computes past cycles' drift when a sub-issue is later re-estimated — more honest, but historical numbers can move.
-                  </div>
-                </div>
-              </label>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
-              <button onClick={() => setShowPrefs(false)} style={{
-                background: c.accent, border: "none", borderRadius: 6,
-                padding: "8px 20px", fontSize: 12, fontWeight: 600, color: "#fff",
-                cursor: "pointer", fontFamily: SANS,
-              }}>Done</button>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              How estimates are displayed across capacity, burndown, and forecasting views.
             </div>
           </div>
-        </>
-      )}
+
+          {/* Default per-day capacity */}
+          <div className="py-3 border-t border-border">
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <div className="text-sm font-semibold text-foreground">
+                Default {unit === "points" ? "points" : "hours"} per day
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="number" min={0.5} step={0.5}
+                  value={defaultPerDay}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!isNaN(v) && v >= 0) updateSettings({ default_points_per_day: v });
+                  }}
+                  className="px-2.5 py-1 text-sm font-mono rounded outline-none text-center"
+                  style={{
+                    width: 72,
+                    background: c.input, border: `1px solid ${c.border}`, color: c.text,
+                  }}
+                />
+                <span className="text-xs font-mono text-muted-foreground">{u}/day</span>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              Per-person daily capacity used across the cycle. Off-days and half-days can still be customised per cycle in the availability grid.
+            </div>
+          </div>
+
+          {/* Parent estimate rollup */}
+          <div className="py-3 border-t border-border">
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <div className="text-sm font-semibold text-foreground">Parent estimate</div>
+              <div className="flex gap-0.5 shrink-0">
+                {[{ id: "children", label: "Sum of subs" }, { id: "parent", label: "Own" }].map((opt) => (
+                  <button key={opt.id} onClick={() => updateSettings({ estimate_rollup: opt.id })} className="font-mono text-xs px-3 py-1 rounded cursor-pointer"
+                    style={{
+                      background: rollupMode === opt.id ? c.accentBg : "transparent",
+                      border: `1px solid ${rollupMode === opt.id ? c.accent : c.border}`,
+                      color: rollupMode === opt.id ? c.accent : c.textMuted,
+                    }}>{opt.label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              {rollupMode === "children"
+                ? "When a parent has estimated sub-issues, use the sum of the sub-issues. Otherwise use the parent's own estimate. Recommended because Fibonacci estimates rarely add up cleanly."
+                : "Always trust the parent's estimate. Ignore sub-issue estimates entirely."}
+            </div>
+          </div>
+
+          {/* Backfill closed cycles */}
+          <div className="py-3 border-t border-border">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={backfillClosed}
+                onChange={(e) => updateSettings({ backfill_closed_cycles: e.target.checked })}
+                className="mt-0.5 cursor-pointer w-4 h-4"
+              />
+              <div>
+                <div className="text-sm font-semibold text-foreground">
+                  Adjust closed cycles when sub-issue estimates change
+                </div>
+                <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Off keeps historical drift frozen as of when each cycle ended. On re-computes past cycles' drift when a sub-issue is later re-estimated — more honest, but historical numbers can move.
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <button onClick={() => setShowPrefs(false)} className="rounded-md px-5 py-2 text-xs font-semibold text-white cursor-pointer"
+              style={{ background: c.accent, fontFamily: SANS }}>Done</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {loading && <div style={{ textAlign: "center", padding: 60, color: c.textMuted }}><div style={{ fontSize: 13 }}>{step}</div></div>}
 

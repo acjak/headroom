@@ -65,11 +65,19 @@ export function ThemeProvider({ children }) {
     try { localStorage.setItem("theme", mode); } catch {}
     document.body.style.background = mode === "dark" ? dark.bg : light.bg;
     document.body.style.color = mode === "dark" ? dark.text : light.text;
+    // Toggle the `dark` class for Tailwind / shadcn components that read CSS variables.
+    document.documentElement.classList.toggle("dark", mode === "dark");
   }, [mode]);
 
   useEffect(() => {
     try { localStorage.setItem("fontScale", fontScale); } catch {}
-    document.documentElement.style.zoom = fontScale;
+    // Zoom the app root rather than <html>, so Radix portals mounted on <body>
+    // aren't double-scaled (that breaks dropdown positioning). We expose the scale
+    // as a CSS variable so portal content (dialogs, dropdowns) can opt in explicitly.
+    const root = document.getElementById("root");
+    if (root) root.style.zoom = fontScale;
+    document.documentElement.style.zoom = "";
+    document.documentElement.style.setProperty("--font-scale", String(fontScale));
   }, [fontScale]);
 
   const toggle = () => setMode((m) => m === "dark" ? "light" : "dark");

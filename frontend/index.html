@@ -69,7 +69,12 @@
 
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
     <style>
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      /* Pre-Tailwind preflight reset — kept here so the app has usable defaults before
+         the JS bundle loads. Once Tailwind preflight runs, its @layer base rules take over
+         for all elements and Tailwind utility classes can still override. Note: we do NOT
+         reset padding on * here any more, because that was unlayered and outranked
+         Tailwind's @layer utilities (e.g. px-3 would silently be overridden). */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; }
       body { background: #0d0f14; color: #e4e6eb; font-family: 'DM Sans', system-ui, sans-serif; transition: background 0.2s, color 0.2s; }
       #root { min-height: 100vh; }
     </style>
